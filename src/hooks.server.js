@@ -1,23 +1,29 @@
-import { PUBLIC_SUPABASE_URL } from '$env/static/public';
+import { env } from '$env/dynamic/public';
 
-const supabaseOrigin = (() => {
-  try { return new URL(PUBLIC_SUPABASE_URL).origin; } catch { return ''; }
-})();
-
-const csp = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${supabaseOrigin}`,
-  `connect-src 'self' ${supabaseOrigin} ${supabaseOrigin.replace('https://', 'wss://')}`,
-  "font-src 'self' data:",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'"
-].join('; ');
+function supabaseOrigin() {
+  try {
+    return new URL((env.PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '')).origin;
+  } catch {
+    return '';
+  }
+}
 
 export async function handle({ event, resolve }) {
+  const origin = supabaseOrigin();
+  const wsOrigin = origin.replace('https://', 'wss://').replace('http://', 'ws://');
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    `img-src 'self' data: blob: ${origin}`,
+    `connect-src 'self' ${origin} ${wsOrigin}`,
+    "font-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'"
+  ].join('; ');
+
   const response = await resolve(event);
   response.headers.set('Content-Security-Policy', csp);
   response.headers.set('X-Content-Type-Options', 'nosniff');
