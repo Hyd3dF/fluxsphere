@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { supabase, photoUrl } from '$lib/supabase.js';
+  import PhotoCard from '$lib/components/PhotoCard.svelte';
+  import { supabase } from '$lib/supabase.js';
 
   let photos = $state([]);
   let loading = $state(true);
@@ -10,7 +11,7 @@
     loading = true;
     const { data, error: err } = await supabase
       .from('photos')
-      .select('id, caption, description, category, storage_path, created_at, user_id, profiles(display_name, first_name, last_name), categories(name, slug)')
+      .select('id, caption, description, category, storage_path, created_at, user_id, profiles(display_name, first_name, last_name, avatar_url), categories(name, slug)')
       .order('created_at', { ascending: false })
       .limit(60);
     if (err) error = err.message;
@@ -22,9 +23,6 @@
     await load();
   });
 
-  function categoryName(p) { return p.categories?.name || p.category; }
-  function publicName(p) { return p.profiles?.display_name || p.profiles?.first_name || 'user'; }
-  function initial(p) { return (publicName(p)?.[0] ?? '.').toUpperCase(); }
 </script>
 
 <section class="hero">
@@ -55,16 +53,7 @@
 {:else}
   <div class="feed">
     {#each photos as p, i (p.id)}
-      <a class="tile" href={`/photo/${p.id}`} style={`animation-delay: ${Math.min(i * 30, 600)}ms`}>
-        <img src={photoUrl(p.storage_path)} alt={p.caption || p.description || 'Photo'} loading="lazy" />
-        <div class="tile-meta">
-          <span class="row" style="gap: 8px;">
-            <span class="avatar" style="width:22px;height:22px;font-size:11px;">{initial(p)}</span>
-            <span>{publicName(p)}</span>
-          </span>
-          {#if categoryName(p)}<span class="cat">{categoryName(p)}</span>{/if}
-        </div>
-      </a>
+      <PhotoCard photo={p} delay={i * 30} />
     {/each}
   </div>
 {/if}

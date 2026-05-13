@@ -33,14 +33,19 @@
       error = 'Use uppercase, lowercase, and a digit.'; return;
     }
     loading = true;
-    const { data, error: err } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { display_name, first_name, middle_name, last_name } }
-    });
-    loading = false;
-    if (err) { error = err.message; return; }
-    if (data.session) goto('/');
-    else info = 'Check your email to confirm your account, then sign in.';
+    try {
+      const { data, error: err } = await supabase.auth.signUp({
+        email, password,
+        options: { data: { display_name, first_name, middle_name, last_name } }
+      });
+      if (err) { error = err.message; return; }
+      if (data.session) goto('/');
+      else info = 'Check your email to confirm your account, then sign in.';
+    } catch (err) {
+      error = err.message ?? 'Could not create the account. Please try again.';
+    } finally {
+      loading = false;
+    }
   }
 </script>
 

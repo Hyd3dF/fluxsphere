@@ -1,8 +1,12 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { supabase } from '$lib/supabase.js';
-  import { user, profile } from '$lib/stores/auth.js';
+  import { supabase, avatarUrl } from '$lib/supabase.js';
+  import { initAuth, user, profile } from '$lib/stores/auth.js';
+
+  const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+  const AVATAR_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+  const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
 
   let links = $state([]);
   let savingProfile = $state(false);
@@ -19,6 +23,10 @@
   let linkOneUrl = $state('');
   let linkTwoLabel = $state('');
   let linkTwoUrl = $state('');
+  let avatarFile = $state(null);
+  let avatarPreview = $state('');
+  let avatarInput = $state(null);
+  let removeAvatar = $state(false);
 
   function resetProfileForm(p, loadedLinks = links) {
     displayName = p?.display_name ?? p?.first_name ?? '';
@@ -31,9 +39,14 @@
     linkOneUrl = loadedLinks[0]?.url ?? '';
     linkTwoLabel = loadedLinks[1]?.label ?? '';
     linkTwoUrl = loadedLinks[1]?.url ?? '';
+    avatarFile = null;
+    removeAvatar = false;
+    avatarPreview = p?.avatar_url ? avatarUrl(p.avatar_url) : '';
+    if (avatarInput) avatarInput.value = '';
   }
 
   onMount(async () => {
+    await initAuth();
     if (!$user) { goto('/login'); return; }
     resetProfileForm($profile);
 
@@ -46,6 +59,50 @@
     links = linkResult.data ?? [];
     resetProfileForm($profile, links);
   });
+
+  function setAvatarFile(file) {
+    profileError = '';
+    if (!file) return;
+    if (!AVATAR_TYPES.includes(file.type)) {
+      profileError = 'Profile photo must be JPEG, PNG, or WebP.';
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      profileError = 'Profile photo is too large (max 4 MB).';
+      return;
+    }
+    if (avatarPreview?.startsWith('blob:')) URL.revokeObjectURL(avatarPreview);
+    avatarFile = file;
+    removeAvatar = false;
+    avatarPreview = URL.createObjectURL(file);
+  }
+
+  function onAvatarChange(e) {
+    setAvatarFile(e.target.files?.[0] ?? null);
+  }
+
+  function clearAvatar() {
+    if (avatarPreview?.startsWith('blob:')) URL.revokeObjectURL(avatarPreview);
+    avatarFile = null;
+    avatarPreview = '';
+    removeAvatar = true;
+    if (avatarInput) avatarInput.value = '';
+  }
+
+  async function uploadAvatar(currentPath) {
+    if (removeAvatar) return null;
+    if (!avatarFile) return currentPath ?? null;
+
+    const ext = AVATAR_EXT[avatarFile.type] ?? 'jpg';
+    const path = `${$user.id}/${crypto.randomUUID()}.${ext}`;
+    const upload = await supabase.storage.from('avatars').upload(path, avatarFile, {
+      cacheControl: '86400',
+      contentType: avatarFile.type,
+      upsert: false
+    });
+    if (upload.error) throw upload.error;
+    return path;
+  }
 
   async function saveProfile(e) {
     e.preventDefault();
@@ -68,14 +125,27 @@
     }
 
     savingProfile = true;
+    let uploadedAvatarPath = null;
+    let shouldCleanUploadedAvatar = false;
     const updates = {
       display_name: displayName.trim(),
       first_name: firstName.trim(),
       middle_name: middleName.trim() || null,
       last_name: lastName.trim() || null,
       bio: bio.trim() || null,
-      profile_description: profileDescription.trim() || null
+      profile_description: profileDescription.trim() || null,
+      avatar_url: $profile?.avatar_url ?? null
     };
+
+    try {
+      uploadedAvatarPath = await uploadAvatar($profile?.avatar_url);
+      shouldCleanUploadedAvatar = !!avatarFile;
+      updates.avatar_url = uploadedAvatarPath;
+    } catch (err) {
+      savingProfile = false;
+      profileError = err.message ?? 'Could not upload profile photo.';
+      return;
+    }
 
     const profileResult = await supabase
       .from('profiles')
@@ -85,9 +155,17 @@
       .single();
 
     if (profileResult.error) {
+      if (shouldCleanUploadedAvatar && uploadedAvatarPath) {
+        await supabase.storage.from('avatars').remove([uploadedAvatarPath]);
+      }
       savingProfile = false;
       profileError = profileResult.error.message;
       return;
+    }
+
+    const previousAvatar = $profile?.avatar_url;
+    if ((removeAvatar || shouldCleanUploadedAvatar) && previousAvatar && previousAvatar !== uploadedAvatarPath && !/^https?:\/\//i.test(previousAvatar)) {
+      await supabase.storage.from('avatars').remove([previousAvatar]);
     }
 
     await supabase.from('profile_links').delete().eq('user_id', $user.id);
@@ -128,6 +206,35 @@
     </header>
 
     <form class="edit-form" onsubmit={saveProfile}>
+      <section class="card edit-card avatar-card">
+        <div class="card-head">
+          <span class="eyebrow">Profile photo</span>
+          <h2>Your image</h2>
+          <p class="section-note">Upload a clear square-ish photo so your profile and comments are easy to recognize.</p>
+        </div>
+
+        <div class="avatar-editor">
+          <div class="avatar lg avatar-preview" aria-label="Current profile photo">
+            {#if avatarPreview}
+              <img src={avatarPreview} alt="" />
+            {:else}
+              <span>{(displayName?.[0] || firstName?.[0] || 'P').toUpperCase()}</span>
+            {/if}
+          </div>
+          <div class="avatar-controls">
+            <label for="profile-avatar">Profile photo</label>
+            <input bind:this={avatarInput} id="profile-avatar" type="file" accept="image/jpeg,image/png,image/webp" onchange={onAvatarChange} />
+            <div class="btn-group mt-2">
+              <label for="profile-avatar" class="btn btn-sm plain upload-label">Choose photo</label>
+              {#if avatarPreview || $profile.avatar_url}
+                <button type="button" class="btn-ghost btn-sm" onclick={clearAvatar}>Remove</button>
+              {/if}
+            </div>
+            <p class="help">JPEG, PNG, or WebP. Max 4 MB.</p>
+          </div>
+        </div>
+      </section>
+
       <section class="card edit-card">
         <div class="card-head">
           <span class="eyebrow">Identity</span>
@@ -257,6 +364,44 @@
     box-shadow: var(--shadow-sm);
   }
 
+  .avatar-card {
+    overflow: visible;
+  }
+
+  .avatar-editor {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--s-5);
+  }
+
+  .avatar-preview {
+    width: clamp(88px, 14vw, 120px);
+    height: clamp(88px, 14vw, 120px);
+    font-size: clamp(32px, 5vw, 44px);
+    overflow: hidden;
+    background: linear-gradient(135deg, var(--paper-2), var(--accent-soft));
+  }
+
+  .avatar-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .avatar-controls input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+  }
+
+  .upload-label {
+    cursor: pointer;
+  }
+
   .card-head {
     padding-bottom: var(--s-4);
     margin-bottom: var(--s-5);
@@ -383,6 +528,16 @@
   }
 
   @media (max-width: 560px) {
+    .avatar-editor {
+      grid-template-columns: 1fr;
+      align-items: start;
+    }
+
+    .avatar-preview {
+      width: 88px;
+      height: 88px;
+    }
+
     .form-grid {
       grid-template-columns: 1fr;
     }

@@ -12,6 +12,7 @@ create table if not exists public.profiles (
   first_name text not null check (char_length(first_name) between 1 and 60),
   middle_name text check (middle_name is null or char_length(middle_name) <= 60),
   last_name text check (last_name is null or char_length(last_name) <= 60),
+  avatar_url text check (avatar_url is null or char_length(avatar_url) <= 1000),
   bio text check (bio is null or char_length(bio) <= 500),
   profile_description text check (profile_description is null or char_length(profile_description) <= 1000),
   created_at timestamptz not null default now(),
@@ -19,10 +20,10 @@ create table if not exists public.profiles (
 );
 
 alter table public.profiles add column if not exists display_name text;
+alter table public.profiles add column if not exists avatar_url text check (avatar_url is null or char_length(avatar_url) <= 1000);
 alter table public.profiles add column if not exists bio text;
 alter table public.profiles add column if not exists profile_description text;
 alter table public.profiles add column if not exists updated_at timestamptz not null default now();
-alter table public.profiles drop column if exists avatar_url;
 
 update public.profiles
 set display_name = coalesce(nullif(display_name, ''), nullif(first_name, ''), 'Photographer')
@@ -180,6 +181,35 @@ alter table public.comments add column if not exists updated_at timestamptz not 
 create index if not exists comments_photo_idx on public.comments(photo_id, created_at);
 create index if not exists comments_parent_idx on public.comments(parent_comment_id, created_at);
 
+create or replace function public.validate_comment_parent()
+returns trigger language plpgsql as $$
+declare
+  parent_photo_id uuid;
+begin
+  if new.parent_comment_id is null then
+    return new;
+  end if;
+
+  select c.photo_id into parent_photo_id
+  from public.comments c
+  where c.id = new.parent_comment_id;
+
+  if parent_photo_id is null then
+    raise exception 'Parent comment does not exist';
+  end if;
+
+  if parent_photo_id <> new.photo_id then
+    raise exception 'Parent comment must belong to the same photo';
+  end if;
+
+  return new;
+end; $$;
+
+drop trigger if exists comments_validate_parent on public.comments;
+create trigger comments_validate_parent
+  before insert or update of parent_comment_id, photo_id on public.comments
+  for each row execute function public.validate_comment_parent();
+
 create table if not exists public.comment_likes (
   user_id uuid not null references public.profiles(id) on delete cascade,
   comment_id uuid not null references public.comments(id) on delete cascade,
@@ -192,6 +222,10 @@ create index if not exists comment_likes_comment_idx on public.comment_likes(com
 -- 8. Storage bucket for photo files
 insert into storage.buckets (id, name, public)
 values ('photos', 'photos', true)
+on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
 on conflict (id) do nothing;
 
 -- 9. Helpers
@@ -226,19 +260,21 @@ $$;
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, display_name, first_name, middle_name, last_name)
+  insert into public.profiles (id, display_name, first_name, middle_name, last_name, avatar_url)
   values (
     new.id,
     coalesce(nullif(new.raw_user_meta_data->>'display_name', ''), nullif(new.raw_user_meta_data->>'first_name', ''), 'Photographer'),
     coalesce(nullif(new.raw_user_meta_data->>'first_name', ''), 'Photographer'),
     nullif(new.raw_user_meta_data->>'middle_name', ''),
-    nullif(new.raw_user_meta_data->>'last_name', '')
+    nullif(new.raw_user_meta_data->>'last_name', ''),
+    nullif(new.raw_user_meta_data->>'avatar_url', '')
   )
   on conflict (id) do update set
     display_name = excluded.display_name,
     first_name = excluded.first_name,
     middle_name = excluded.middle_name,
-    last_name = excluded.last_name;
+    last_name = excluded.last_name,
+    avatar_url = coalesce(public.profiles.avatar_url, nullif(new.raw_user_meta_data->>'avatar_url', ''));
 
   insert into public.user_private (id, email, email_confirmed_at, password_updated_at)
   values (new.id, new.email, new.email_confirmed_at, now())
@@ -397,3 +433,27 @@ create policy "photos_storage_update_own" on storage.objects for update
 drop policy if exists "photos_storage_delete_own" on storage.objects;
 create policy "photos_storage_delete_own" on storage.objects for delete
   using (bucket_id = 'photos' and owner = auth.uid());
+
+drop policy if exists "avatars_storage_read" on storage.objects;
+create policy "avatars_storage_read" on storage.objects for select using (bucket_id = 'avatars');
+
+drop policy if exists "avatars_storage_insert_own" on storage.objects;
+create policy "avatars_storage_insert_own" on storage.objects for insert
+  with check (
+    bucket_id = 'avatars'
+    and auth.role() = 'authenticated'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "avatars_storage_update_own" on storage.objects;
+create policy "avatars_storage_update_own" on storage.objects for update
+  using (bucket_id = 'avatars' and owner = auth.uid())
+  with check (
+    bucket_id = 'avatars'
+    and owner = auth.uid()
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "avatars_storage_delete_own" on storage.objects;
+create policy "avatars_storage_delete_own" on storage.objects for delete
+  using (bucket_id = 'avatars' and owner = auth.uid());

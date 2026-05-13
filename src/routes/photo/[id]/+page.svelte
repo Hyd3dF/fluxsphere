@@ -2,8 +2,8 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { supabase, photoUrl } from '$lib/supabase.js';
-  import { user } from '$lib/stores/auth.js';
+  import { supabase, photoUrl, avatarUrl } from '$lib/supabase.js';
+  import { user, profile } from '$lib/stores/auth.js';
 
   let photo = $state(null);
   let comments = $state([]);
@@ -17,12 +17,52 @@
   let error = $state('');
 
   const id = $derived($page.params.id);
-  const rootComments = $derived(comments.filter((comment) => !comment.parent_comment_id));
+  const commentRows = $derived.by(() => {
+    const byParent = new Map();
+    for (const comment of comments) {
+      const key = comment.parent_comment_id ?? 'root';
+      byParent.set(key, [...(byParent.get(key) ?? []), comment]);
+    }
+
+    const rows = [];
+    const seen = new Set();
+    function visit(parentId, depth) {
+      for (const comment of byParent.get(parentId) ?? []) {
+        if (seen.has(comment.id)) continue;
+        seen.add(comment.id);
+        rows.push({ ...comment, depth: Math.min(depth, 3) });
+        visit(comment.id, depth + 1);
+      }
+    }
+
+    visit('root', 0);
+    for (const comment of comments) {
+      if (!seen.has(comment.id)) rows.push({ ...comment, depth: 0, orphaned: true });
+    }
+    return rows;
+  });
   const imageUrl = $derived(photo ? photoUrl(photo.storage_path) : '');
   const downloadName = $derived(photo ? `${(photo.caption || 'photogram-photo').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'photogram-photo'}.jpg` : 'photogram-photo.jpg');
+  const authorProfile = $derived(profileForUser(photo?.user_id, photo?.profiles));
+  const authorName = $derived(publicName(authorProfile, photo?.user_id));
+  const authorAvatar = $derived(avatarFor(authorProfile));
+  const authorHref = $derived(photo?.user_id ? `/profile/${photo.user_id}` : '');
 
   function initial(name) { return (name?.[0] ?? '.').toUpperCase(); }
-  function publicName(profile) { return profile?.display_name || profile?.first_name || 'user'; }
+  function normalizeProfile(value) {
+    if (Array.isArray(value)) return value[0] ?? null;
+    return value ?? null;
+  }
+  function profileForUser(userId, embeddedProfile) {
+    if (userId && $profile?.id === userId) return $profile;
+    return normalizeProfile(embeddedProfile);
+  }
+  function fullName(profile) {
+    return [profile?.first_name, profile?.middle_name, profile?.last_name].filter(Boolean).join(' ');
+  }
+  function publicName(profile, userId = '') {
+    return profile?.display_name || fullName(profile) || (userId ? `User ${userId.slice(0, 8)}` : 'Unknown photographer');
+  }
   function formatDate(iso) {
     try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }); }
     catch { return ''; }
@@ -34,16 +74,14 @@
     if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
     return `${Math.floor(s / 86400)}d ago`;
   }
-  function repliesFor(commentId) {
-    return comments.filter((comment) => comment.parent_comment_id === commentId);
-  }
+  function avatarFor(profile) { return profile?.avatar_url ? avatarUrl(profile.avatar_url) : ''; }
 
   async function load() {
     loading = true;
     error = '';
     const p = await supabase
       .from('photos')
-      .select('id, caption, description, category, storage_path, created_at, user_id, profiles(display_name, first_name, middle_name, last_name), categories(name, slug), photo_hashtags(hashtags(name, slug))')
+      .select('id, caption, description, category, storage_path, created_at, user_id, profiles(id, display_name, first_name, middle_name, last_name, avatar_url), categories(name, slug), photo_hashtags(hashtags(name, slug))')
       .eq('id', id)
       .single();
     if (p.error) { error = p.error.message; loading = false; return; }
@@ -52,7 +90,7 @@
 
     const [cs, lc, mine] = await Promise.all([
       supabase.from('comments')
-        .select('id, body, created_at, user_id, parent_comment_id, profiles(display_name, first_name, last_name)')
+        .select('id, body, created_at, user_id, parent_comment_id, profiles(id, display_name, first_name, middle_name, last_name, avatar_url)')
         .eq('photo_id', id)
         .order('created_at', { ascending: true }),
       supabase.from('photo_likes').select('*', { count: 'exact', head: true }).eq('photo_id', id),
@@ -67,10 +105,16 @@
         .select('comment_id, user_id')
         .in('comment_id', commentIds);
       const rows = likes.data ?? [];
+      const likeCounts = new Map();
+      const likedByMe = new Set();
+      for (const row of rows) {
+        likeCounts.set(row.comment_id, (likeCounts.get(row.comment_id) ?? 0) + 1);
+        if ($user && row.user_id === $user.id) likedByMe.add(row.comment_id);
+      }
       comments = loadedComments.map((comment) => ({
         ...comment,
-        like_count: rows.filter((row) => row.comment_id === comment.id).length,
-        liked_by_me: $user ? rows.some((row) => row.comment_id === comment.id && row.user_id === $user.id) : false
+        like_count: likeCounts.get(comment.id) ?? 0,
+        liked_by_me: likedByMe.has(comment.id)
       }));
     } else {
       comments = [];
@@ -122,10 +166,10 @@
     const { data, error: err } = await supabase
       .from('comments')
       .insert({ photo_id: id, user_id: $user.id, body, parent_comment_id: parentId })
-      .select('id, body, created_at, user_id, parent_comment_id, profiles(display_name, first_name, last_name)')
+      .select('id, body, created_at, user_id, parent_comment_id, profiles(id, display_name, first_name, middle_name, last_name, avatar_url)')
       .single();
     if (err) { error = err.message; return; }
-    comments = [...comments, { ...data, like_count: 0, liked_by_me: false }];
+    comments = [...comments, { ...data, profiles: $profile ?? data.profiles, like_count: 0, liked_by_me: false }];
     if (parentId) {
       replyText = '';
       replyToId = null;
@@ -150,7 +194,7 @@
 {:else if photo}
   <div class="photo-stage">
     <div class="frame">
-      <img src={imageUrl} alt={photo.caption || photo.description || 'Photo'} />
+      <img src={imageUrl} alt={photo.caption || photo.description || 'Photo'} decoding="async" fetchpriority="high" />
     </div>
 
     <aside class="photo-aside">
@@ -172,13 +216,19 @@
           </div>
         {/if}
 
-        <div class="author-row">
-          <span class="avatar">{initial(publicName(photo.profiles))}</span>
-          <div>
-            <div style="font-weight: 600;">{publicName(photo.profiles)}</div>
-            <div class="muted" style="font-size: 12px;">{formatDate(photo.created_at)}</div>
+        <a class="author-row photo-author-link plain" href={authorHref} aria-label={`View ${authorName}'s profile`}>
+          <span class="avatar author-avatar">
+            {#if authorAvatar}
+              <img src={authorAvatar} alt="" />
+            {:else}
+              {initial(authorName)}
+            {/if}
+          </span>
+          <div class="author-copy">
+            <div class="author-name">{authorName}</div>
+            <div class="muted author-date">{formatDate(photo.created_at)}</div>
           </div>
-        </div>
+        </a>
 
         <div class="photo-toolbar">
           <button class="like-btn {liked ? 'liked' : ''}" onclick={toggleLike}>
@@ -210,58 +260,46 @@
         </div>
 
         <div class="comments-scroll">
-          {#if rootComments.length === 0}
+          {#if commentRows.length === 0}
             <p class="muted mb-3">Be the first to leave a note.</p>
           {:else}
             <div class="comments">
-              {#each rootComments as c (c.id)}
-                <div class="comment-thread">
-                  <div class="comment">
-                    <span class="avatar">{initial(publicName(c.profiles))}</span>
-                    <div style="flex:1; min-width: 0;">
-                      <div>
-                        <span class="who">{publicName(c.profiles)}</span>
-                        <span class="when">{timeAgo(c.created_at)}</span>
-                      </div>
-                      <div class="body">{c.body}</div>
-                      <div class="comment-actions">
-                        <button type="button" class="btn-text" onclick={() => toggleCommentLike(c)}>
-                          {c.liked_by_me ? 'Liked' : 'Like'} ({c.like_count ?? 0})
-                        </button>
-                        {#if $user}
-                          <button type="button" class="btn-text" onclick={() => { replyToId = replyToId === c.id ? null : c.id; replyText = ''; }}>Reply</button>
-                        {/if}
-                      </div>
-                      {#if replyToId === c.id}
-                        <form onsubmit={(e) => addComment(e, c.id)} class="reply-form">
-                          <textarea rows="2" bind:value={replyText} maxlength="1000" placeholder="Write a reply..."></textarea>
-                          <div class="btn-group end mt-2">
-                            <button type="button" class="btn-ghost btn-sm" onclick={() => { replyToId = null; replyText = ''; }}>Cancel</button>
-                            <button type="submit" class="btn-sm">Reply</button>
-                          </div>
-                        </form>
+              {#each commentRows as c (c.id)}
+                {@const commentProfile = profileForUser(c.user_id, c.profiles)}
+                <article class="comment depth-{c.depth}" class:orphaned={c.orphaned}>
+                  <span class="avatar">
+                    {#if avatarFor(commentProfile)}
+                      <img src={avatarFor(commentProfile)} alt="" />
+                    {:else}
+                      {initial(publicName(commentProfile, c.user_id))}
+                    {/if}
+                  </span>
+                  <div class="comment-content">
+                    <div class="comment-head">
+                      <a class="who plain" href={`/profile/${c.user_id}`}>{publicName(commentProfile, c.user_id)}</a>
+                      <span class="when">{timeAgo(c.created_at)}</span>
+                    </div>
+                    <div class="body">{c.body}</div>
+                    <div class="comment-actions">
+                      <button type="button" class="btn-text like-note" onclick={() => toggleCommentLike(c)}>
+                        <span>{c.liked_by_me ? 'Liked' : 'Like'}</span>
+                        <span class="like-count">{c.like_count ?? 0}</span>
+                      </button>
+                      {#if $user}
+                        <button type="button" class="btn-text" onclick={() => { replyToId = replyToId === c.id ? null : c.id; replyText = ''; }}>Reply</button>
                       {/if}
                     </div>
+                    {#if replyToId === c.id}
+                      <form onsubmit={(e) => addComment(e, c.id)} class="reply-form">
+                        <textarea rows="2" bind:value={replyText} maxlength="1000" placeholder="Write a reply..."></textarea>
+                        <div class="btn-group end mt-2">
+                          <button type="button" class="btn-ghost btn-sm" onclick={() => { replyToId = null; replyText = ''; }}>Cancel</button>
+                          <button type="submit" class="btn-sm">Reply</button>
+                        </div>
+                      </form>
+                    {/if}
                   </div>
-
-                  {#each repliesFor(c.id) as r (r.id)}
-                    <div class="comment reply">
-                      <span class="avatar">{initial(publicName(r.profiles))}</span>
-                      <div style="flex:1; min-width: 0;">
-                        <div>
-                          <span class="who">{publicName(r.profiles)}</span>
-                          <span class="when">{timeAgo(r.created_at)}</span>
-                        </div>
-                        <div class="body">{r.body}</div>
-                        <div class="comment-actions">
-                          <button type="button" class="btn-text" onclick={() => toggleCommentLike(r)}>
-                            {r.liked_by_me ? 'Liked' : 'Like'} ({r.like_count ?? 0})
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
+                </article>
               {/each}
             </div>
           {/if}
@@ -271,7 +309,7 @@
           <form onsubmit={addComment} class="comment-form">
             <label for="new-comment">Leave a note</label>
             <textarea id="new-comment" rows="3" bind:value={newComment} maxlength="1000" placeholder="Share a thought..."></textarea>
-            <div class="row between mt-2">
+            <div class="comment-form-actions">
               <span class="counter">{newComment.length}/1000</span>
               <button type="submit" class="btn-sm">Post note</button>
             </div>

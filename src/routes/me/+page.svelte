@@ -1,8 +1,9 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { supabase, photoUrl } from '$lib/supabase.js';
-  import { user, profile } from '$lib/stores/auth.js';
+  import PhotoCard from '$lib/components/PhotoCard.svelte';
+  import { supabase, avatarUrl } from '$lib/supabase.js';
+  import { initAuth, user, profile } from '$lib/stores/auth.js';
 
   let mine = $state([]);
   let links = $state([]);
@@ -22,7 +23,10 @@
     return new Date(iso).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   }
 
+  const profileAvatar = $derived($profile?.avatar_url ? avatarUrl($profile.avatar_url) : '');
+
   onMount(async () => {
+    await initAuth();
     if (!$user) { goto('/login'); return; }
 
     const linkResult = await supabase
@@ -61,7 +65,13 @@
 {#if $user && $profile}
   <section class="profile-head me-profile-head">
     <div class="profile-main">
-      <div class="avatar lg profile-avatar">{initial(publicName($profile))}</div>
+      <div class="avatar lg profile-avatar" aria-label="Profile photo">
+        {#if profileAvatar}
+          <img src={profileAvatar} alt={`${publicName($profile)} profile photo`} />
+        {:else}
+          <span>{initial(publicName($profile))}</span>
+        {/if}
+      </div>
       <div class="profile-copy">
         <span class="eyebrow">Profile</span>
         <h1>{publicName($profile)}</h1>
@@ -133,16 +143,12 @@
   {:else}
     <div class="feed">
       {#each mine as p, i (p.id)}
-        <a class="tile" href={`/photo/${p.id}`} style={`animation-delay: ${Math.min(i * 25, 500)}ms`}>
-          <img src={photoUrl(p.storage_path)} alt={p.caption || p.description || 'Photo'} loading="lazy" />
-          <div class="tile-meta">
-            <span>{new Date(p.created_at).toLocaleDateString()}</span>
-            {#if p.category}<span class="cat">{p.category}</span>{/if}
-          </div>
-        </a>
+        <PhotoCard photo={p} delay={i * 25} authorProfile={$profile} showDate />
       {/each}
     </div>
   {/if}
+{:else if loading}
+  <p class="muted">Loading profile...</p>
 {/if}
 
 <style>
@@ -163,12 +169,19 @@
   }
 
   .profile-avatar {
-    width: clamp(76px, 11vw, 112px);
-    height: clamp(76px, 11vw, 112px);
+    width: clamp(84px, 12vw, 118px);
+    height: clamp(84px, 12vw, 118px);
     font-size: clamp(30px, 5vw, 44px);
-    background:
-      linear-gradient(135deg, var(--paper-2), var(--accent-soft));
+    background: linear-gradient(135deg, var(--paper-2), var(--accent-soft));
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.55), var(--shadow-sm);
+    overflow: hidden;
+  }
+
+  .profile-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
 
   .profile-copy {
@@ -321,8 +334,8 @@
     }
 
     .profile-avatar {
-      width: 82px;
-      height: 82px;
+      width: 86px;
+      height: 86px;
       font-size: 32px;
     }
 

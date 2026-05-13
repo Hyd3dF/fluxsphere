@@ -11,10 +11,15 @@
     e.preventDefault();
     error = '';
     loading = true;
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-    loading = false;
-    if (err) { error = err.message; return; }
-    goto('/');
+    try {
+      const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+      if (err) { error = err.message; return; }
+      goto('/');
+    } catch (err) {
+      error = err.message ?? 'Could not sign in. Please try again.';
+    } finally {
+      loading = false;
+    }
   }
 </script>
 

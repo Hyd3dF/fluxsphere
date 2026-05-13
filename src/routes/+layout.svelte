@@ -2,7 +2,8 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import { initAuth, user } from '$lib/stores/auth.js';
+  import { avatarUrl } from '$lib/supabase.js';
+  import { initAuth, user, profile } from '$lib/stores/auth.js';
 
   let { children } = $props();
   let menuOpen = $state(false);
@@ -12,9 +13,11 @@
   function closeMenu() { menuOpen = false; }
   const path = $derived($page.url.pathname);
   const authPage = $derived(path === '/login' || path === '/register');
+  const profileAvatar = $derived($profile?.avatar_url ? avatarUrl($profile.avatar_url) : '');
+  const profileName = $derived($profile?.display_name || $profile?.first_name || $user?.email?.split('@')[0] || 'Profile');
 </script>
 
-<nav class="nav">
+<nav class="nav" data-sveltekit-preload-data="hover">
   <div class="nav-inner">
     <a href="/" class="brand" onclick={closeMenu}>
       <span>Photogram</span><span class="brand-dot"></span>
@@ -27,7 +30,11 @@
       {#if $user}
         <a href="/upload" aria-current={path === '/upload' ? 'page' : undefined} onclick={closeMenu}>Share</a>
         <a href="/me" class="profile-nav-link" aria-label="Profile" aria-current={path.startsWith('/me') ? 'page' : undefined} onclick={closeMenu}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="9.5" r="2.6"/><path d="M7.6 17.2c.9-2.2 2.4-3.3 4.4-3.3s3.5 1.1 4.4 3.3"/></svg>
+          {#if profileAvatar}
+            <img class="nav-profile-image" src={profileAvatar} alt="" />
+          {:else}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="9.5" r="2.6"/><path d="M7.6 17.2c.9-2.2 2.4-3.3 4.4-3.3s3.5 1.1 4.4 3.3"/></svg>
+          {/if}
           <span>Profile</span>
         </a>
       {:else}
@@ -54,8 +61,12 @@
       <span>Share</span>
     </a>
     <a href="/me" aria-current={path.startsWith('/me') ? 'page' : undefined}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="9.5" r="2.6"/><path d="M7.6 17.2c.9-2.2 2.4-3.3 4.4-3.3s3.5 1.1 4.4 3.3"/></svg>
-      <span>Profile</span>
+      {#if profileAvatar}
+        <img class="mobile-profile-image" src={profileAvatar} alt="" />
+      {:else}
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="9.5" r="2.6"/><path d="M7.6 17.2c.9-2.2 2.4-3.3 4.4-3.3s3.5 1.1 4.4 3.3"/></svg>
+      {/if}
+      <span>{profileName}</span>
     </a>
   {:else}
     <a href="/login" aria-current={path === '/login' ? 'page' : undefined}>
@@ -69,7 +80,7 @@
   {/if}
 </nav>
 
-<main class="container {authPage ? 'auth-container' : ''}">
+<main class="container {authPage ? 'auth-container' : ''}" data-sveltekit-preload-data="hover">
   {@render children()}
 </main>
 

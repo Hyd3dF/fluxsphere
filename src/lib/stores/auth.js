@@ -5,33 +5,64 @@ export const session = writable(null);
 export const user = writable(null);
 export const profile = writable(null);
 export const categories = writable([]);
+export const authReady = writable(false);
+export const authError = writable('');
 
-let initialized = false;
+let initPromise;
+let profileLoadSeq = 0;
 export async function initAuth() {
-  if (initialized) return;
-  initialized = true;
+  if (initPromise) return initPromise;
 
-  const { data } = await supabase.auth.getSession();
-  session.set(data.session);
-  user.set(data.session?.user ?? null);
-  await loadProfile(data.session?.user?.id);
+  initPromise = (async () => {
+    authReady.set(false);
+    authError.set('');
 
-  supabase.auth.onAuthStateChange(async (_event, s) => {
-    session.set(s);
-    user.set(s?.user ?? null);
-    await loadProfile(s?.user?.id);
-  });
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
+
+      session.set(data.session ?? null);
+      user.set(data.session?.user ?? null);
+      await loadProfile(data.session?.user?.id);
+
+      supabase.auth.onAuthStateChange((_event, s) => {
+        session.set(s ?? null);
+        user.set(s?.user ?? null);
+        void loadProfile(s?.user?.id);
+      });
+    } catch (err) {
+      authError.set(err.message ?? 'Could not restore your session.');
+      session.set(null);
+      user.set(null);
+      profile.set(null);
+    } finally {
+      authReady.set(true);
+    }
+  })();
+
+  return initPromise;
 }
 
 async function loadProfile(uid) {
-  if (!uid) { profile.set(null); return; }
-  const { data: existing } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+  const seq = ++profileLoadSeq;
+  if (!uid) {
+    profile.set(null);
+    return;
+  }
+
+  const { data: existing, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+  if (seq !== profileLoadSeq) return;
+  if (error) {
+    profile.set(null);
+    return;
+  }
   if (existing) {
     profile.set(existing);
     return;
   }
 
   const { data: authData } = await supabase.auth.getUser();
+  if (seq !== profileLoadSeq) return;
   const currentUser = authData?.user;
   if (!currentUser || currentUser.id !== uid) {
     profile.set(null);
@@ -40,25 +71,28 @@ async function loadProfile(uid) {
 
   const metadata = currentUser.user_metadata ?? {};
   const fallbackName = metadata.display_name || metadata.first_name || currentUser.email?.split('@')[0] || 'Photographer';
-  const { data: created } = await supabase
+  const { data: created, error: createError } = await supabase
     .from('profiles')
-    .insert({
+    .upsert({
       id: uid,
       display_name: fallbackName,
       first_name: metadata.first_name || fallbackName,
       middle_name: metadata.middle_name || null,
-      last_name: metadata.last_name || null
-    })
+      last_name: metadata.last_name || null,
+      avatar_url: metadata.avatar_url || null
+    }, { onConflict: 'id' })
     .select('*')
     .maybeSingle();
 
-  profile.set(created ?? null);
+  if (seq === profileLoadSeq) profile.set(createError ? null : (created ?? null));
 }
 
 export const CATEGORIES = [
   'Nature', 'People', 'Food', 'Travel', 'Animals',
   'Art', 'Sports', 'Tech', 'Architecture', 'Other'
 ];
+
+let categoriesPromise;
 
 export function slugify(value) {
   return (value ?? '')
@@ -69,18 +103,24 @@ export function slugify(value) {
 }
 
 export async function loadCategories() {
-  const { data } = await supabase
-    .from('categories')
-    .select('id, name, slug, is_system')
-    .order('is_system', { ascending: false })
-    .order('name', { ascending: true });
+  if (categoriesPromise) return categoriesPromise;
 
-  if (data?.length) {
-    categories.set(data);
-    return data;
-  }
+  categoriesPromise = (async () => {
+    const { data } = await supabase
+      .from('categories')
+      .select('id, name, slug, is_system')
+      .order('is_system', { ascending: false })
+      .order('name', { ascending: true });
 
-  const fallback = CATEGORIES.map((name) => ({ id: null, name, slug: slugify(name), is_system: true }));
-  categories.set(fallback);
-  return fallback;
+    if (data?.length) {
+      categories.set(data);
+      return data;
+    }
+
+    const fallback = CATEGORIES.map((name) => ({ id: null, name, slug: slugify(name), is_system: true }));
+    categories.set(fallback);
+    return fallback;
+  })();
+
+  return categoriesPromise;
 }

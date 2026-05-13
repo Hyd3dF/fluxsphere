@@ -12,12 +12,31 @@ export const supabase = createClient(url, anonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+    storageKey: 'photogram-auth'
   }
 });
 
-export function photoUrl(path) {
+function publicStorageUrl(bucket, path) {
   if (!path) return '';
-  const { data } = supabase.storage.from('photos').getPublicUrl(path);
+  if (/^https?:\/\//i.test(path)) return path;
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   return data.publicUrl;
+}
+
+export function photoUrl(path) {
+  return publicStorageUrl('photos', path);
+}
+
+export function avatarUrl(path) {
+  return publicStorageUrl('avatars', path);
+}
+
+export function filterText(value, maxLength = 80) {
+  return (value ?? '')
+    .trim()
+    .replace(/[%*,()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, maxLength);
 }
