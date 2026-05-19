@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://fluxsphere.sbs/</loc>
+    <lastmod>2026-05-19T05:21:23.543Z</lastmod>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://fluxsphere.sbs/search</loc>
+    <lastmod>2026-05-19T05:21:23.544Z</lastmod>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://fluxsphere.sbs/photo/4c62508f-5054-4c7c-a5a7-b92da966b63e</loc>
+    <lastmod>2026-05-19T05:05:14.032Z</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://fluxsphere.sbs/profile/3ad70f0e-d39e-4b12-bb29-8e79d7cb752c</loc>
+    <lastmod>2026-05-19T05:06:18.621Z</lastmod>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://fluxsphere.sbs/profile/e84e6653-21e0-40ab-a965-1da83bf3f3c4</loc>
+    <lastmod>2026-05-17T08:33:22.528Z</lastmod>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://fluxsphere.sbs/profile/9bb127cb-c23a-4dbe-b73e-58dad8ac2112</loc>
+    <lastmod>2026-05-16T22:11:31.459Z</lastmod>
+    <priority>0.6</priority>
+  </url>
+</urlset>

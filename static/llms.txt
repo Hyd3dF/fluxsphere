@@ -1,0 +1,19 @@
+# Photogram
+
+Photogram is a public photography-sharing website for discovering, publishing, and viewing photographs.
+
+Important public pages:
+- https://fluxsphere.sbs/
+- https://fluxsphere.sbs/search
+- https://fluxsphere.sbs/sitemap.xml
+
+Public content pages use these URL patterns:
+- https://fluxsphere.sbs/photo/{photo_id}
+- https://fluxsphere.sbs/profile/{profile_id}
+
+Private or account-specific pages should not be crawled:
+- https://fluxsphere.sbs/me
+- https://fluxsphere.sbs/upload
+- https://fluxsphere.sbs/auth/*
+
+AI crawlers may index public photo, profile, feed, and search pages when allowed by robots.txt.

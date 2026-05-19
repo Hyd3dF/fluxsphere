@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "node scripts/generate-static-seo.mjs && vite build",
     "preview": "vite preview",
     "check:google-auth": "node scripts/check-google-auth.mjs",
     "audit:agents": "node scripts/agent-audit.mjs",

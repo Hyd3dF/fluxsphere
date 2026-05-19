@@ -1,0 +1,26 @@
+User-agent: *
+Allow: /
+Crawl-delay: 10
+
+User-agent: GPTBot
+Allow: /
+Crawl-delay: 10
+
+User-agent: ChatGPT-User
+Allow: /
+Crawl-delay: 10
+
+User-agent: OAI-SearchBot
+Allow: /
+Crawl-delay: 10
+
+User-agent: Google-Extended
+Allow: /
+
+Disallow: /me
+Disallow: /me/
+Disallow: /upload
+Disallow: /auth/
+
+Sitemap: https://fluxsphere.sbs/sitemap.xml
+Host: https://fluxsphere.sbs
