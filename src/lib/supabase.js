@@ -19,9 +19,22 @@ export const supabase = createClient(url, anonKey, {
 });
 
 function publicStorageUrl(bucket, path) {
-  if (!path) return '';
-  if (/^https?:\/\//i.test(path)) return path;
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  const cleanPath = String(path ?? '').trim();
+  if (!cleanPath) return '';
+
+  if (/^https?:\/\//i.test(cleanPath)) {
+    try {
+      const externalUrl = new URL(cleanPath);
+      return externalUrl.protocol === 'https:' ? externalUrl.toString() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  const storagePath = cleanPath.replace(/^\/+/, '');
+  if (!storagePath || storagePath.split('/').includes('..')) return '';
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(storagePath);
   return data.publicUrl;
 }
 

@@ -2,7 +2,8 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { supabase, photoUrl, avatarUrl } from '$lib/supabase.js';
+  import { supabase, photoUrl } from '$lib/supabase.js';
+  import { avatarFor, initialFor, profileForUser, publicName } from '$lib/profile.js';
   import { user, profile } from '$lib/stores/auth.js';
 
   let { data } = $props();
@@ -45,7 +46,7 @@
   });
   const imageUrl = $derived(photo ? photoUrl(photo.storage_path) : '');
   const downloadName = $derived(photo ? `${(photo.caption || 'photogram-photo').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'photogram-photo'}.jpg` : 'photogram-photo.jpg');
-  const authorProfile = $derived(profileForUser(photo?.user_id, photo?.profiles));
+  const authorProfile = $derived(profileForUser(photo?.user_id, photo?.profiles, $profile));
   const authorName = $derived(publicName(authorProfile, photo?.user_id));
   const authorAvatar = $derived(avatarFor(authorProfile));
   const authorHref = $derived(photo?.user_id ? `/profile/${photo.user_id}` : '');
@@ -67,21 +68,6 @@
     }
   }).replaceAll('<', '\\u003c') : '');
 
-  function initial(name) { return (name?.[0] ?? '.').toUpperCase(); }
-  function normalizeProfile(value) {
-    if (Array.isArray(value)) return value[0] ?? null;
-    return value ?? null;
-  }
-  function profileForUser(userId, embeddedProfile) {
-    if (userId && $profile?.id === userId) return $profile;
-    return normalizeProfile(embeddedProfile);
-  }
-  function fullName(profile) {
-    return [profile?.first_name, profile?.middle_name, profile?.last_name].filter(Boolean).join(' ');
-  }
-  function publicName(profile, userId = '') {
-    return profile?.display_name || fullName(profile) || (userId ? `User ${userId.slice(0, 8)}` : 'Unknown photographer');
-  }
   function formatDate(iso) {
     try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }); }
     catch { return ''; }
@@ -93,8 +79,6 @@
     if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
     return `${Math.floor(s / 86400)}d ago`;
   }
-  function avatarFor(profile) { return profile?.avatar_url ? avatarUrl(profile.avatar_url) : ''; }
-
   async function load() {
     loading = true;
     error = '';
@@ -259,7 +243,7 @@
             {#if authorAvatar}
               <img src={authorAvatar} alt="" />
             {:else}
-              {initial(authorName)}
+              {initialFor(authorName)}
             {/if}
           </span>
           <div class="author-copy">
@@ -303,13 +287,13 @@
           {:else}
             <div class="comments">
               {#each commentRows as c (c.id)}
-                {@const commentProfile = profileForUser(c.user_id, c.profiles)}
+                {@const commentProfile = profileForUser(c.user_id, c.profiles, $profile)}
                 <article class="comment depth-{c.depth}" class:orphaned={c.orphaned}>
                   <span class="avatar">
                     {#if avatarFor(commentProfile)}
                       <img src={avatarFor(commentProfile)} alt="" />
                     {:else}
-                      {initial(publicName(commentProfile, c.user_id))}
+                      {initialFor(publicName(commentProfile, c.user_id))}
                     {/if}
                   </span>
                   <div class="comment-content">

@@ -412,15 +412,18 @@
     if (!$user) { error = 'You must be signed in.'; return; }
     if (processingImage) { error = 'Please wait until the image is optimized.'; return; }
     if (!file) { error = 'Pick a photograph to upload.'; return; }
-    if (caption.length > MAX_CAPTION) { error = `Caption too long (max ${MAX_CAPTION}).`; return; }
-    if (description.length > MAX_DESC) { error = `Description too long (max ${MAX_DESC}).`; return; }
+    const cleanCaption = caption.trim();
+    const cleanDescription = description.trim();
+    if (cleanCaption.length > MAX_CAPTION) { error = `Caption too long (max ${MAX_CAPTION}).`; return; }
+    if (cleanDescription.length > MAX_DESC) { error = `Description too long (max ${MAX_DESC}).`; return; }
     if (hashtagInput.trim()) commitHashtagInput();
     if (hashtagError) { error = hashtagError; return; }
 
     const categoryRow = selectedCategory();
     const cat = categoryRow?.name ?? '';
     if (!cat) { error = 'Pick a category or create your own.'; return; }
-    if (cat.length > 40) { error = 'Category must be 40 characters or fewer.'; return; }
+    const cleanCategory = cat.trim();
+    if (cleanCategory.length > 40) { error = 'Category must be 40 characters or fewer.'; return; }
 
     loading = true;
     try {
@@ -434,9 +437,9 @@
       const ins = await supabase.from('photos').insert({
         user_id: $user.id,
         storage_path: path,
-        caption,
-        description,
-        category: categoryRow?.name ?? cat,
+        caption: cleanCaption || null,
+        description: cleanDescription || null,
+        category: cleanCategory,
         category_id: categoryRow?.id ?? null
       }).select('id').single();
       if (ins.error) {

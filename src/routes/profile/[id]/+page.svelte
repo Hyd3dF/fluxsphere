@@ -2,7 +2,8 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import PhotoCard from '$lib/components/PhotoCard.svelte';
-  import { supabase, avatarUrl } from '$lib/supabase.js';
+  import { supabase } from '$lib/supabase.js';
+  import { avatarFor, fullName, initialFor, publicName } from '$lib/profile.js';
 
   let { data } = $props();
 
@@ -15,7 +16,7 @@
   let error = $state(data.error ?? '');
 
   const id = $derived($page.params.id);
-  const profileAvatar = $derived(profile?.avatar_url ? avatarUrl(profile.avatar_url) : '');
+  const profileAvatar = $derived(avatarFor(profile));
   const pageUrl = $derived(`${$page.url.origin}/profile/${id}`);
   const seoTitle = $derived(profile ? `${publicName(profile)} on Photogram` : 'Photogram profile');
   const seoDescription = $derived(profile
@@ -29,18 +30,6 @@
     image: profileAvatar || undefined,
     description: seoDescription
   }).replaceAll('<', '\\u003c') : '');
-
-  function fullName(p) {
-    return [p?.first_name, p?.middle_name, p?.last_name].filter(Boolean).join(' ');
-  }
-
-  function publicName(p) {
-    return p?.display_name || fullName(p) || (id ? `User ${id.slice(0, 8)}` : 'Photographer');
-  }
-
-  function initial(value) {
-    return (value?.[0] ?? '?').toUpperCase();
-  }
 
   function memberSince(iso) {
     if (!iso) return '';
@@ -125,7 +114,7 @@
         {#if profileAvatar}
           <img src={profileAvatar} alt={`${publicName(profile)} profile photo`} />
         {:else}
-          <span>{initial(publicName(profile))}</span>
+          <span>{initialFor(publicName(profile))}</span>
         {/if}
       </div>
 

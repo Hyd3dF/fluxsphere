@@ -525,6 +525,11 @@ create policy "photos_storage_insert" on storage.objects for insert
     bucket_id = 'photos'
     and auth.role() = 'authenticated'
     and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(coalesce(metadata->>'mimetype', '')) in ('image/jpeg', 'image/png', 'image/webp')
+    and case when coalesce(metadata->>'size', '') ~ '^[0-9]+$'
+      then (metadata->>'size')::bigint between 1 and 10485760
+      else false
+    end
   );
 
 drop policy if exists "photos_storage_update_own" on storage.objects;
@@ -534,6 +539,11 @@ create policy "photos_storage_update_own" on storage.objects for update
     bucket_id = 'photos'
     and owner = auth.uid()
     and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(coalesce(metadata->>'mimetype', '')) in ('image/jpeg', 'image/png', 'image/webp')
+    and case when coalesce(metadata->>'size', '') ~ '^[0-9]+$'
+      then (metadata->>'size')::bigint between 1 and 10485760
+      else false
+    end
   );
 
 drop policy if exists "photos_storage_delete_own" on storage.objects;
@@ -549,6 +559,11 @@ create policy "avatars_storage_insert_own" on storage.objects for insert
     bucket_id = 'avatars'
     and auth.role() = 'authenticated'
     and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(coalesce(metadata->>'mimetype', '')) in ('image/jpeg', 'image/png', 'image/webp')
+    and case when coalesce(metadata->>'size', '') ~ '^[0-9]+$'
+      then (metadata->>'size')::bigint between 1 and 4194304
+      else false
+    end
   );
 
 drop policy if exists "avatars_storage_update_own" on storage.objects;
@@ -558,6 +573,11 @@ create policy "avatars_storage_update_own" on storage.objects for update
     bucket_id = 'avatars'
     and owner = auth.uid()
     and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(coalesce(metadata->>'mimetype', '')) in ('image/jpeg', 'image/png', 'image/webp')
+    and case when coalesce(metadata->>'size', '') ~ '^[0-9]+$'
+      then (metadata->>'size')::bigint between 1 and 4194304
+      else false
+    end
   );
 
 drop policy if exists "avatars_storage_delete_own" on storage.objects;
@@ -637,11 +657,9 @@ drop policy if exists "hashtags_insert_authenticated" on public.hashtags;
 create policy "hashtags_insert_authenticated" on public.hashtags for insert
   with check (auth.role() = 'authenticated' and created_by = auth.uid());
 
--- 12.4 Let comment authors edit their own comments (was silently failing under RLS).
+-- 12.4 Keep comments immutable after creation. This prevents API clients from
+-- moving a comment to another photo/thread by updating foreign keys directly.
 drop policy if exists "comments_update_self" on public.comments;
-create policy "comments_update_self" on public.comments for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
 
 -- 12.5 Mirror legacy `likes` writes into `photo_likes` so they cannot drift.
 create or replace function public.mirror_likes_to_photo_likes()
@@ -681,6 +699,11 @@ create policy "photos_storage_insert" on storage.objects for insert
     bucket_id = 'photos'
     and auth.role() = 'authenticated'
     and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(coalesce(metadata->>'mimetype', '')) in ('image/jpeg', 'image/png', 'image/webp')
+    and case when coalesce(metadata->>'size', '') ~ '^[0-9]+$'
+      then (metadata->>'size')::bigint between 1 and 10485760
+      else false
+    end
   );
 
 -- 12.7 Constrain auth_provider to known values, but only if existing data is clean.

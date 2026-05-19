@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import PhotoCard from '$lib/components/PhotoCard.svelte';
-  import { supabase, avatarUrl } from '$lib/supabase.js';
+  import { supabase } from '$lib/supabase.js';
+  import { avatarFor, fullName, initialFor, publicName } from '$lib/profile.js';
   import { account, initAuth, user, profile } from '$lib/stores/auth.js';
 
   let mine = $state([]);
@@ -14,18 +15,12 @@
   let signingOut = $state(false);
   let signOutError = $state('');
 
-  function initial(name) { return (name?.[0] ?? '.').toUpperCase(); }
-  function fullName(p) {
-    if (!p) return '';
-    return [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(' ');
-  }
-  function publicName(p) { return p?.display_name || fullName(p) || 'Photographer'; }
   function memberSince(iso) {
     if (!iso) return '';
     return new Date(iso).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   }
 
-  const profileAvatar = $derived($profile?.avatar_url ? avatarUrl($profile.avatar_url) : '');
+  const profileAvatar = $derived(avatarFor($profile));
   const accountEmail = $derived($account?.email || $user?.email || '');
 
   onMount(async () => {
@@ -93,7 +88,7 @@
         {#if profileAvatar}
           <img src={profileAvatar} alt={`${publicName($profile)} profile photo`} />
         {:else}
-          <span>{initial(publicName($profile))}</span>
+          <span>{initialFor(publicName($profile))}</span>
         {/if}
       </div>
       <div class="profile-copy">

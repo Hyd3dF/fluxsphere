@@ -6,7 +6,7 @@ export async function load() {
 
   const { data, error } = await supabase
     .from('photos')
-    .select('id, caption, description, category, storage_path, created_at, user_id, profiles(display_name, first_name, last_name, avatar_url), categories(name, slug)')
+    .select('id, caption, description, category, storage_path, created_at, user_id, profiles(id, display_name, first_name, middle_name, last_name, avatar_url), categories(name, slug)')
     .order('created_at', { ascending: false })
     .limit(60);
 

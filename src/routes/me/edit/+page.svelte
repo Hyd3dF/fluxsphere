@@ -104,6 +104,17 @@
     if (avatarInput) avatarInput.value = '';
   }
 
+  function safeProfileLink(value) {
+    try {
+      const url = new URL(value.trim());
+      if (url.protocol !== 'https:' || !url.hostname) return '';
+      url.hash = '';
+      return url.toString();
+    } catch {
+      return '';
+    }
+  }
+
   async function uploadAvatar(currentPath) {
     if (removeAvatar) return null;
     if (!avatarFile) return currentPath ?? null;
@@ -126,17 +137,17 @@
     if (!$user) return;
 
     const cleanLinks = [
-      { label: linkOneLabel.trim(), url: linkOneUrl.trim(), position: 0 },
-      { label: linkTwoLabel.trim(), url: linkTwoUrl.trim(), position: 1 }
-    ].filter((link) => link.label || link.url);
+      { label: linkOneLabel.trim(), url: safeProfileLink(linkOneUrl), rawUrl: linkOneUrl.trim(), position: 0 },
+      { label: linkTwoLabel.trim(), url: safeProfileLink(linkTwoUrl), rawUrl: linkTwoUrl.trim(), position: 1 }
+    ].filter((link) => link.label || link.rawUrl);
 
     if (!displayName.trim()) { profileError = 'Display name is required.'; return; }
     if (!firstName.trim()) { profileError = 'First name is required.'; return; }
     if (cleanLinks.some((link) => !link.label || !link.url)) {
       profileError = 'Each profile link needs both a label and a URL.'; return;
     }
-    if (cleanLinks.some((link) => !/^https?:\/\//i.test(link.url))) {
-      profileError = 'Links must start with http:// or https://.'; return;
+    if (cleanLinks.some((link) => !link.url)) {
+      profileError = 'Links must be valid https:// URLs.'; return;
     }
 
     savingProfile = true;
@@ -192,7 +203,7 @@
     if (cleanLinks.length) {
       const linkResult = await supabase
         .from('profile_links')
-        .insert(cleanLinks.map((link) => ({ ...link, user_id: $user.id })))
+        .insert(cleanLinks.map(({ label, url, position }) => ({ label, url, position, user_id: $user.id })))
         .select('id, label, url, position')
         .order('position', { ascending: true });
 
