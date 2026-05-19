@@ -3,9 +3,11 @@
   import PhotoCard from '$lib/components/PhotoCard.svelte';
   import { supabase } from '$lib/supabase.js';
 
-  let photos = $state([]);
-  let loading = $state(true);
-  let error = $state('');
+  let { data } = $props();
+
+  let photos = $state(data.photos ?? []);
+  let loading = $state(!data.photos?.length && !data.error);
+  let error = $state(data.error ?? '');
 
   async function load() {
     loading = true;

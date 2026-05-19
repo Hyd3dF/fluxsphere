@@ -4,16 +4,31 @@
   import PhotoCard from '$lib/components/PhotoCard.svelte';
   import { supabase, avatarUrl } from '$lib/supabase.js';
 
-  let profile = $state(null);
-  let links = $state([]);
-  let photos = $state([]);
-  let likesTotal = $state(0);
-  let commentsTotal = $state(0);
-  let loading = $state(true);
-  let error = $state('');
+  let { data } = $props();
+
+  let profile = $state(data.profile ?? null);
+  let links = $state(data.links ?? []);
+  let photos = $state(data.photos ?? []);
+  let likesTotal = $state(data.likesTotal ?? 0);
+  let commentsTotal = $state(data.commentsTotal ?? 0);
+  let loading = $state(!data.profile && !data.error);
+  let error = $state(data.error ?? '');
 
   const id = $derived($page.params.id);
   const profileAvatar = $derived(profile?.avatar_url ? avatarUrl(profile.avatar_url) : '');
+  const pageUrl = $derived(`${$page.url.origin}/profile/${id}`);
+  const seoTitle = $derived(profile ? `${publicName(profile)} on Photogram` : 'Photogram profile');
+  const seoDescription = $derived(profile
+    ? (profile.bio || profile.profile_description || `${publicName(profile)} has shared ${photos.length} photographs on Photogram.`).slice(0, 155)
+    : 'A public Photogram profile.');
+  const structuredData = $derived(profile ? JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Person',
+    name: publicName(profile),
+    url: pageUrl,
+    image: profileAvatar || undefined,
+    description: seoDescription
+  }).replaceAll('<', '\\u003c') : '');
 
   function fullName(p) {
     return [p?.first_name, p?.middle_name, p?.last_name].filter(Boolean).join(' ');
@@ -77,6 +92,27 @@
 
   onMount(load);
 </script>
+
+<svelte:head>
+  {#if profile}
+    <title>{seoTitle}</title>
+    <meta name="description" content={seoDescription} />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href={pageUrl} />
+    <meta property="og:type" content="profile" />
+    <meta property="og:title" content={seoTitle} />
+    <meta property="og:description" content={seoDescription} />
+    <meta property="og:url" content={pageUrl} />
+    {#if profileAvatar}
+      <meta property="og:image" content={profileAvatar} />
+      <meta name="twitter:image" content={profileAvatar} />
+    {/if}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={seoTitle} />
+    <meta name="twitter:description" content={seoDescription} />
+    <script type="application/ld+json">{structuredData}</script>
+  {/if}
+</svelte:head>
 
 {#if loading}
   <p class="muted">Loading profile...</p>

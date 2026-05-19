@@ -5,16 +5,18 @@
   import { supabase, photoUrl, avatarUrl } from '$lib/supabase.js';
   import { user, profile } from '$lib/stores/auth.js';
 
-  let photo = $state(null);
-  let comments = $state([]);
-  let hashtags = $state([]);
-  let likeCount = $state(0);
+  let { data } = $props();
+
+  let photo = $state(data.photo ?? null);
+  let comments = $state(data.comments ?? []);
+  let hashtags = $state(data.hashtags ?? []);
+  let likeCount = $state(data.likeCount ?? 0);
   let liked = $state(false);
   let newComment = $state('');
   let replyToId = $state(null);
   let replyText = $state('');
-  let loading = $state(true);
-  let error = $state('');
+  let loading = $state(!data.photo && !data.error);
+  let error = $state(data.error ?? '');
 
   const id = $derived($page.params.id);
   const commentRows = $derived.by(() => {
@@ -47,6 +49,23 @@
   const authorName = $derived(publicName(authorProfile, photo?.user_id));
   const authorAvatar = $derived(avatarFor(authorProfile));
   const authorHref = $derived(photo?.user_id ? `/profile/${photo.user_id}` : '');
+  const pageUrl = $derived(photo ? `${$page.url.origin}/photo/${photo.id}` : $page.url.href);
+  const seoTitle = $derived(photo?.caption || photo?.description || 'Photograph on Photogram');
+  const seoDescription = $derived((photo?.description || `A photograph by ${authorName} on Photogram.`).slice(0, 155));
+  const structuredData = $derived(photo ? JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'ImageObject',
+    name: seoTitle,
+    description: seoDescription,
+    contentUrl: imageUrl,
+    thumbnailUrl: imageUrl,
+    uploadDate: photo.created_at,
+    author: {
+      '@type': 'Person',
+      name: authorName,
+      url: `${$page.url.origin}${authorHref}`
+    }
+  }).replaceAll('<', '\\u003c') : '');
 
   function initial(name) { return (name?.[0] ?? '.').toUpperCase(); }
   function normalizeProfile(value) {
@@ -186,6 +205,25 @@
     goto('/');
   }
 </script>
+
+<svelte:head>
+  {#if photo}
+    <title>{seoTitle} - Photogram</title>
+    <meta name="description" content={seoDescription} />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href={pageUrl} />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content={seoTitle} />
+    <meta property="og:description" content={seoDescription} />
+    <meta property="og:url" content={pageUrl} />
+    <meta property="og:image" content={imageUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={seoTitle} />
+    <meta name="twitter:description" content={seoDescription} />
+    <meta name="twitter:image" content={imageUrl} />
+    <script type="application/ld+json">{structuredData}</script>
+  {/if}
+</svelte:head>
 
 {#if loading}
   <p class="muted">Loading...</p>
