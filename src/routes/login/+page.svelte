@@ -1,58 +1,67 @@
 <script>
-  import { goto } from '$app/navigation';
-  import { supabase } from '$lib/supabase.js';
+  import AuthPageShell from '$lib/components/AuthPageShell.svelte';
+  import { formatGoogleAuthError, startGoogleAuth } from '$lib/auth/google.js';
 
-  let email = $state('');
-  let password = $state('');
   let error = $state('');
-  let loading = $state(false);
+  let googleLoading = $state(false);
 
-  async function submit(e) {
-    e.preventDefault();
+  const stats = [
+    { value: 'SSO', label: 'google secured' },
+    { value: '2FA', label: 'inherited from google' },
+    { value: '0', label: 'passwords stored' }
+  ];
+
+  const trustItems = [
+    {
+      title: 'Pick up where you left off',
+      text: 'Your feed, drafts and profile load exactly as you left them.',
+      icon: 'M5 12.5l4.5 4.5L19 7'
+    },
+    {
+      title: 'Secured by Google',
+      text: 'Authentication and two-factor are handled by your Google account.',
+      icon: 'M12 3l8 3v6c0 4.2-3.2 7.4-8 9-4.8-1.6-8-4.8-8-9V6l8-3z'
+    },
+    {
+      title: 'Publish in one step',
+      text: 'Upload a new frame or reply to comments the moment you sign in.',
+      paths: [
+        'M12 4v12',
+        'M7 9l5-5 5 5',
+        'M5 20h14'
+      ]
+    }
+  ];
+
+  async function signInWithGoogle() {
     error = '';
-    loading = true;
+    googleLoading = true;
     try {
-      const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-      if (err) { error = err.message; return; }
-      goto('/');
+      await startGoogleAuth('login');
     } catch (err) {
-      error = err.message ?? 'Could not sign in. Please try again.';
+      error = formatGoogleAuthError(err, 'Could not start Google sign in. Please try again.');
     } finally {
-      loading = false;
+      googleLoading = false;
     }
   }
 </script>
 
-<div class="split">
-  <div class="pane art">
-    <span class="eyebrow" style="color: rgba(247,245,240,.6);">Welcome back</span>
-    <div class="accent-line"></div>
-    <h2>The quietest place<br/>to share a photograph.</h2>
-    <p style="max-width: 32ch;">Sign in to follow your feed, leave a note on someone's photo, or share something of your own.</p>
-  </div>
-  <div class="pane">
-    <div class="auth-form">
-      <span class="eyebrow">Sign in</span>
-      <h1 style="margin-top: 10px;">Welcome back.</h1>
-      <p class="muted" style="margin-bottom: 28px;">Enter your details to continue.</p>
-
-      <form onsubmit={submit}>
-        <div class="field">
-          <label for="login-email">Email</label>
-          <input id="login-email" type="email" bind:value={email} required autocomplete="email" placeholder="you@example.com" />
-        </div>
-        <div class="field">
-          <label for="login-password">Password</label>
-          <input id="login-password" type="password" bind:value={password} required autocomplete="current-password" placeholder="----------" />
-        </div>
-        {#if error}<p class="error">{error}</p>{/if}
-        <div class="btn-group mt-3">
-          <button type="submit" disabled={loading} class="full">
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
-        </div>
-      </form>
-      <p class="muted mt-3 center">New here? <a href="/register">Create an account</a></p>
-    </div>
-  </div>
-</div>
+<AuthPageShell
+  mode="login"
+  eyebrow="Sign in"
+  heading="Welcome back."
+  lede="Continue with the Google account you used when you joined."
+  buttonLabel="Sign in with Google"
+  {error}
+  loading={googleLoading}
+  onGoogleAuth={signInWithGoogle}
+  panelTitle="Step back into your studio."
+  panelText="Photogram keeps your feed, drafts and profile in sync - secured by Google so you never juggle another password."
+  {stats}
+  {trustItems}
+  footerPrompt="New here?"
+  footerHref="/register"
+  footerLabel="Create an account"
+  fineprint="Signing in confirms you agree to the Terms and Privacy Notice."
+  backdropCredit=""
+/>

@@ -12,12 +12,12 @@
 
   function closeMenu() { menuOpen = false; }
   const path = $derived($page.url.pathname);
-  const authPage = $derived(path === '/login' || path === '/register');
+  const authPage = $derived(path === '/login' || path === '/register' || path === '/auth/callback');
   const profileAvatar = $derived($profile?.avatar_url ? avatarUrl($profile.avatar_url) : '');
   const profileName = $derived($profile?.display_name || $profile?.first_name || $user?.email?.split('@')[0] || 'Profile');
 </script>
 
-<nav class="nav" data-sveltekit-preload-data="hover">
+<nav class="nav {authPage ? 'nav--auth' : ''}" data-sveltekit-preload-data="hover">
   <div class="nav-inner">
     <a href="/" class="brand" onclick={closeMenu}>
       <span>Photogram</span><span class="brand-dot"></span>
@@ -39,14 +39,14 @@
         </a>
       {:else}
         <span class="nav-divider"></span>
-        <a href="/login" onclick={closeMenu}>Sign in</a>
-        <a href="/register" class="btn btn-sm" onclick={closeMenu}>Join</a>
+        <a href="/login" class="nav-auth-link" aria-current={path === '/login' ? 'page' : undefined} onclick={closeMenu}>Sign in</a>
+        <a href="/register" class="btn btn-sm nav-auth-cta" aria-current={path === '/register' ? 'page' : undefined} onclick={closeMenu}>Join with Google</a>
       {/if}
     </div>
   </div>
 </nav>
 
-<nav class="mobile-bottom-nav" aria-label="Primary">
+<nav class="mobile-bottom-nav {authPage ? 'mobile-bottom-nav--auth' : ''}" aria-label="Primary">
   <a href="/" aria-current={path === '/' ? 'page' : undefined}>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-6h5v6"/></svg>
     <span>Feed</span>
@@ -84,8 +84,10 @@
   {@render children()}
 </main>
 
-<footer style="text-align:center; padding: var(--s-7) 0 var(--s-8); color: var(--muted); font-size: 12px;">
-  <span class="eyebrow">Photogram</span>
-  <span style="margin: 0 8px; color: var(--line);">·</span>
-  an editorial space for your photographs
-</footer>
+{#if !authPage}
+  <footer class="site-footer">
+    <span class="eyebrow">Photogram</span>
+    <span class="site-footer-dot">.</span>
+    an editorial space for your photographs
+  </footer>
+{/if}

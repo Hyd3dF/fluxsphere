@@ -3,14 +3,16 @@
   import { goto } from '$app/navigation';
   import PhotoCard from '$lib/components/PhotoCard.svelte';
   import { supabase, avatarUrl } from '$lib/supabase.js';
-  import { initAuth, user, profile } from '$lib/stores/auth.js';
+  import { account, initAuth, user, profile } from '$lib/stores/auth.js';
 
   let mine = $state([]);
   let links = $state([]);
   let likesTotal = $state(0);
   let commentsTotal = $state(0);
   let loading = $state(true);
+  let loadError = $state('');
   let signingOut = $state(false);
+  let signOutError = $state('');
 
   function initial(name) { return (name?.[0] ?? '.').toUpperCase(); }
   function fullName(p) {
@@ -24,41 +26,63 @@
   }
 
   const profileAvatar = $derived($profile?.avatar_url ? avatarUrl($profile.avatar_url) : '');
+  const accountEmail = $derived($account?.email || $user?.email || '');
 
   onMount(async () => {
-    await initAuth();
-    if (!$user) { goto('/login'); return; }
+    loadError = '';
+    try {
+      await initAuth();
+      if (!$user) {
+        loading = false;
+        await goto('/login');
+        return;
+      }
 
-    const linkResult = await supabase
-      .from('profile_links')
-      .select('id, label, url, position')
-      .eq('user_id', $user.id)
-      .order('position', { ascending: true });
-    links = linkResult.data ?? [];
+      const linkResult = await supabase
+        .from('profile_links')
+        .select('id, label, url, position')
+        .eq('user_id', $user.id)
+        .order('position', { ascending: true });
+      if (linkResult.error) throw linkResult.error;
+      links = linkResult.data ?? [];
 
-    const { data } = await supabase
-      .from('photos')
-      .select('id, caption, description, category, storage_path, created_at')
-      .eq('user_id', $user.id)
-      .order('created_at', { ascending: false });
-    mine = data ?? [];
+      const photoResult = await supabase
+        .from('photos')
+        .select('id, caption, description, category, storage_path, created_at')
+        .eq('user_id', $user.id)
+        .order('created_at', { ascending: false });
+      if (photoResult.error) throw photoResult.error;
+      mine = photoResult.data ?? [];
 
-    if (mine.length) {
-      const ids = mine.map((p) => p.id);
-      const [{ count: lc }, { count: cc }] = await Promise.all([
-        supabase.from('photo_likes').select('*', { count: 'exact', head: true }).in('photo_id', ids),
-        supabase.from('comments').select('*', { count: 'exact', head: true }).in('photo_id', ids)
-      ]);
-      likesTotal = lc ?? 0;
-      commentsTotal = cc ?? 0;
+      if (mine.length) {
+        const ids = mine.map((p) => p.id);
+        const [likeResult, commentResult] = await Promise.all([
+          supabase.from('photo_likes').select('*', { count: 'exact', head: true }).in('photo_id', ids),
+          supabase.from('comments').select('*', { count: 'exact', head: true }).in('photo_id', ids)
+        ]);
+        if (likeResult.error) throw likeResult.error;
+        if (commentResult.error) throw commentResult.error;
+        likesTotal = likeResult.count ?? 0;
+        commentsTotal = commentResult.count ?? 0;
+      }
+    } catch (err) {
+      loadError = err?.message ?? 'Could not load your profile.';
+    } finally {
+      loading = false;
     }
-    loading = false;
   });
 
   async function signOut() {
     signingOut = true;
-    await supabase.auth.signOut();
-    goto('/');
+    signOutError = '';
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      await goto('/');
+    } catch (err) {
+      signOutError = err?.message ?? 'Could not sign you out. Please try again.';
+      signingOut = false;
+    }
   }
 </script>
 
@@ -79,7 +103,9 @@
           {#if fullName($profile)}
             <span>{fullName($profile)}</span>
           {/if}
-          <span>{$user.email}</span>
+          {#if accountEmail}
+            <span>{accountEmail}</span>
+          {/if}
           {#if $user.created_at}
             <span>Member since {memberSince($user.created_at)}</span>
           {/if}
@@ -95,6 +121,12 @@
 
     <aside class="profile-panel" aria-label="Profile actions and statistics">
       <div class="profile-stats me-profile-stats">
+        {#if accountEmail}
+          <div class="stat account-email-stat">
+            <span class="num email-value">{accountEmail}</span>
+            <span class="label">Account email</span>
+          </div>
+        {/if}
         <div class="stat">
           <span class="num">{mine.length}</span>
           <span class="label">Photographs</span>
@@ -123,6 +155,9 @@
           {signingOut ? 'Signing out...' : 'Sign out'}
         </button>
       </div>
+      {#if signOutError}
+        <p class="error profile-action-error" role="alert">{signOutError}</p>
+      {/if}
     </aside>
   </section>
 
@@ -136,6 +171,10 @@
 
   {#if loading}
     <p class="muted">Loading...</p>
+  {:else if loadError}
+    <div class="empty" role="alert">
+      Could not load your photographs. {loadError}
+    </div>
   {:else if mine.length === 0}
     <div class="empty">
       Your wall is empty.
@@ -149,6 +188,11 @@
   {/if}
 {:else if loading}
   <p class="muted">Loading profile...</p>
+{:else}
+  <section class="empty profile-load-error" role="alert">
+    Could not load your profile. {loadError}
+    <a class="btn btn-sm plain mt-3" href="/login">Return to login</a>
+  </section>
 {/if}
 
 <style>
@@ -206,6 +250,7 @@
     display: inline-flex;
     align-items: center;
     min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .profile-meta span:not(:last-child)::after {
@@ -254,6 +299,20 @@
     margin: 0;
   }
 
+  .me-profile-stats .account-email-stat {
+    display: grid;
+    gap: 4px;
+    align-items: start;
+  }
+
+  .me-profile-stats .email-value {
+    font-family: var(--font-sans);
+    font-size: 13.5px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+  }
+
   .me-profile-stats .stat .label {
     text-align: right;
   }
@@ -272,6 +331,10 @@
 
   .profile-actions > * {
     width: 100%;
+  }
+
+  .profile-action-error {
+    margin: 0;
   }
 
   .sign-out {
@@ -308,6 +371,10 @@
 
     .me-profile-stats {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .me-profile-stats .account-email-stat {
+      grid-column: 1 / -1;
     }
 
     .me-profile-stats .stat {

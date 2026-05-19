@@ -4,6 +4,7 @@ import { supabase } from '$lib/supabase.js';
 export const session = writable(null);
 export const user = writable(null);
 export const profile = writable(null);
+export const account = writable(null);
 export const categories = writable([]);
 export const authReady = writable(false);
 export const authError = writable('');
@@ -24,17 +25,20 @@ export async function initAuth() {
       session.set(data.session ?? null);
       user.set(data.session?.user ?? null);
       await loadProfile(data.session?.user?.id);
+      await loadAccount(data.session?.user?.id);
 
       supabase.auth.onAuthStateChange((_event, s) => {
         session.set(s ?? null);
         user.set(s?.user ?? null);
         void loadProfile(s?.user?.id);
+        void loadAccount(s?.user?.id);
       });
     } catch (err) {
       authError.set(err.message ?? 'Could not restore your session.');
       session.set(null);
       user.set(null);
       profile.set(null);
+      account.set(null);
     } finally {
       authReady.set(true);
     }
@@ -70,21 +74,71 @@ async function loadProfile(uid) {
   }
 
   const metadata = currentUser.user_metadata ?? {};
-  const fallbackName = metadata.display_name || metadata.first_name || currentUser.email?.split('@')[0] || 'Photographer';
+  const fullName = metadata.full_name || metadata.name || '';
+  const firstName = metadata.first_name || fullName.split(' ')[0] || currentUser.email?.split('@')[0] || 'Photographer';
+  const fallbackName = metadata.display_name || fullName || firstName;
   const { data: created, error: createError } = await supabase
     .from('profiles')
     .upsert({
       id: uid,
       display_name: fallbackName,
-      first_name: metadata.first_name || fallbackName,
+      first_name: firstName,
       middle_name: metadata.middle_name || null,
       last_name: metadata.last_name || null,
-      avatar_url: metadata.avatar_url || null
+      avatar_url: metadata.avatar_url || metadata.picture || null
     }, { onConflict: 'id' })
     .select('*')
     .maybeSingle();
 
   if (seq === profileLoadSeq) profile.set(createError ? null : (created ?? null));
+}
+
+export async function loadAccount(uid) {
+  if (!uid) {
+    account.set(null);
+    return null;
+  }
+
+  let result = await supabase
+    .from('user_private')
+    .select('id, email, email_confirmed_at, auth_provider, created_at, updated_at')
+    .eq('id', uid)
+    .maybeSingle();
+
+  if (result.error && /auth_provider/i.test(result.error.message ?? '')) {
+    result = await supabase
+      .from('user_private')
+      .select('id, email, email_confirmed_at, created_at, updated_at')
+      .eq('id', uid)
+      .maybeSingle();
+  }
+
+  account.set(result.error ? null : (result.data ?? null));
+  return result.error ? null : (result.data ?? null);
+}
+
+export async function ensureCurrentUserRecords(currentUser) {
+  if (!currentUser?.id) return null;
+
+  const metadata = currentUser.user_metadata ?? {};
+  const fullName = metadata.full_name || metadata.name || '';
+  const firstName = metadata.first_name || fullName.split(' ')[0] || currentUser.email?.split('@')[0] || 'Photographer';
+  const fallbackName = metadata.display_name || fullName || firstName;
+  const avatar = metadata.avatar_url || metadata.picture || null;
+
+  await supabase
+    .from('profiles')
+    .upsert({
+      id: currentUser.id,
+      display_name: fallbackName,
+      first_name: firstName,
+      middle_name: metadata.middle_name || null,
+      last_name: metadata.last_name || null,
+      avatar_url: avatar
+    }, { onConflict: 'id' });
+
+  await loadProfile(currentUser.id);
+  return loadAccount(currentUser.id);
 }
 
 export const CATEGORIES = [

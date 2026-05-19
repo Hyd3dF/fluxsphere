@@ -2,13 +2,14 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { supabase, avatarUrl } from '$lib/supabase.js';
-  import { initAuth, user, profile } from '$lib/stores/auth.js';
+  import { account, initAuth, user, profile } from '$lib/stores/auth.js';
 
   const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
   const AVATAR_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
   const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
 
   let links = $state([]);
+  let loadingProfile = $state(true);
   let savingProfile = $state(false);
   let profileMessage = $state('');
   let profileError = $state('');
@@ -28,6 +29,8 @@
   let avatarInput = $state(null);
   let removeAvatar = $state(false);
 
+  const accountEmail = $derived($account?.email || $user?.email || '');
+
   function resetProfileForm(p, loadedLinks = links) {
     displayName = p?.display_name ?? p?.first_name ?? '';
     firstName = p?.first_name ?? '';
@@ -46,18 +49,30 @@
   }
 
   onMount(async () => {
-    await initAuth();
-    if (!$user) { goto('/login'); return; }
-    resetProfileForm($profile);
+    try {
+      await initAuth();
+      if (!$user) {
+        loadingProfile = false;
+        await goto('/login');
+        return;
+      }
+      if (!$profile) throw new Error('Could not load your profile details.');
+      resetProfileForm($profile);
 
-    const linkResult = await supabase
-      .from('profile_links')
-      .select('id, label, url, position')
-      .eq('user_id', $user.id)
-      .order('position', { ascending: true });
+      const linkResult = await supabase
+        .from('profile_links')
+        .select('id, label, url, position')
+        .eq('user_id', $user.id)
+        .order('position', { ascending: true });
+      if (linkResult.error) throw linkResult.error;
 
-    links = linkResult.data ?? [];
-    resetProfileForm($profile, links);
+      links = linkResult.data ?? [];
+      resetProfileForm($profile, links);
+    } catch (err) {
+      profileError = err?.message ?? 'Could not load your profile details.';
+    } finally {
+      loadingProfile = false;
+    }
   });
 
   function setAvatarFile(file) {
@@ -168,7 +183,12 @@
       await supabase.storage.from('avatars').remove([previousAvatar]);
     }
 
-    await supabase.from('profile_links').delete().eq('user_id', $user.id);
+    const deleteLinksResult = await supabase.from('profile_links').delete().eq('user_id', $user.id);
+    if (deleteLinksResult.error) {
+      savingProfile = false;
+      profileError = deleteLinksResult.error.message;
+      return;
+    }
     if (cleanLinks.length) {
       const linkResult = await supabase
         .from('profile_links')
@@ -190,11 +210,17 @@
     resetProfileForm(profileResult.data, links);
     profileMessage = 'Profile saved.';
     savingProfile = false;
-    goto('/me');
+    await goto('/me');
   }
 </script>
 
-{#if $user && $profile}
+{#if loadingProfile}
+  <section class="profile-edit-status center" aria-live="polite" aria-busy="true">
+    <span class="eyebrow">Account</span>
+    <h1>Loading profile...</h1>
+    <p class="muted">Getting your account details ready.</p>
+  </section>
+{:else if $user && $profile}
   <div class="profile-edit">
     <header class="edit-hero">
       <div>
@@ -242,6 +268,13 @@
           <p class="section-note">These fields help people recognize your work and credit you correctly.</p>
         </div>
         <div class="form-grid">
+          {#if accountEmail}
+            <div class="field span-2">
+              <label for="profile-account-email">Account email</label>
+              <input id="profile-account-email" value={accountEmail} readonly autocomplete="email" />
+              <p class="help">Your Google account email is stored privately and is not shown on public profiles.</p>
+            </div>
+          {/if}
           <div class="field span-2">
             <label for="profile-display-name">Display name</label>
             <input id="profile-display-name" bind:value={displayName} required maxlength="40" autocomplete="name" />
@@ -317,7 +350,7 @@
         </div>
       </section>
 
-      <div class="save-panel">
+      <div class="save-panel" aria-live="polite">
         {#if profileError}<p class="error">{profileError}</p>{/if}
         {#if profileMessage}<p class="success">{profileMessage}</p>{/if}
         <div class="btn-group end stack-mobile">
@@ -327,9 +360,26 @@
       </div>
     </form>
   </div>
+{:else}
+  <section class="profile-edit-status center" role="alert">
+    <span class="eyebrow">Account</span>
+    <h1>Profile unavailable</h1>
+    <p class="muted">{profileError || 'Could not load your profile details.'}</p>
+    <a href="/me" class="btn btn-sm plain mt-3">Back to profile</a>
+  </section>
 {/if}
 
 <style>
+  .profile-edit-status {
+    width: min(100%, 520px);
+    margin: var(--s-8) auto;
+    padding: var(--s-7) var(--s-5);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--paper-2);
+    box-shadow: var(--shadow-sm);
+  }
+
   .profile-edit {
     width: min(100%, 760px);
     margin: 0 auto;
