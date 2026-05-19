@@ -17,6 +17,16 @@
   const profileName = $derived($profile?.display_name || $profile?.first_name || $user?.email?.split('@')[0] || 'Profile');
 </script>
 
+<svelte:head>
+  <title>Photogram - Photographs, quietly shared</title>
+  <meta
+    name="description"
+    content="Photogram is a public photography-sharing space for discovering, publishing, and viewing photographs."
+  />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://fluxsphere.sbs{$page.url.pathname}" />
+</svelte:head>
+
 <nav class="nav {authPage ? 'nav--auth' : ''}" data-sveltekit-preload-data="hover">
   <div class="nav-inner">
     <a href="/" class="brand" onclick={closeMenu}>
